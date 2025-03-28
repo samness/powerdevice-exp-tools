@@ -101,10 +101,76 @@ DEVICE_CONFIGS = {
                 }
             ],
             "GELM6000": [
-                "CVE-2021-27101 - GE Mark VIe控制系统漏洞",
-                "CVE-2021-27103 - GE工业控制系统漏洞",
-                "CVE-2021-27107 - GELM系列拒绝服务漏洞",
-                "CVE-2022-24296 - GE工业通信协议漏洞"
+                {
+                    "id": "CVE-2019-13554",
+                    "name": "GE Mark VIe 控制器 Telnet 认证绕过漏洞",
+                    "description": "GE Mark VIe 控制器存在 Telnet 服务认证绕过漏洞，攻击者可以未经授权访问控制系统",
+                    "affected_component": "Mark VIe Controller",
+                    "test_method": {
+                        "port": 23,
+                        "protocol": "Telnet",
+                        "payload": "BYPASS_AUTH_PACKET",
+                        "expected_response": "login_success"
+                    },
+                    "severity": "严重",
+                    "cvss_score": 9.1
+                },
+                {
+                    "id": "CVE-2019-13559",
+                    "name": "GE Mark VIe 控制器硬编码凭据漏洞",
+                    "description": "GE Mark VIe 控制器存在硬编码凭据，攻击者可利用此漏洞获取系统访问权限",
+                    "affected_component": "Mark VIe Authentication Module",
+                    "test_method": {
+                        "port": 502,
+                        "protocol": "Modbus TCP",
+                        "payload": "READ_HOLDING_REGISTERS(0x1000, 10)",
+                        "expected_response": "credentials_exposed"
+                    },
+                    "severity": "高危",
+                    "cvss_score": 8.8
+                },
+                {
+                    "id": "CVE-2020-12004",
+                    "name": "GE Mark VIe Web服务器未授权访问漏洞",
+                    "description": "GE Mark VIe Web服务器存在未授权访问漏洞，攻击者可以访问敏感配置信息",
+                    "affected_component": "Mark VIe Web Server",
+                    "test_method": {
+                        "port": 80,
+                        "protocol": "HTTP",
+                        "payload": "GET /config/system.xml",
+                        "expected_response": "config_access_granted"
+                    },
+                    "severity": "高危",
+                    "cvss_score": 8.2
+                },
+                {
+                    "id": "CVE-2021-27101",
+                    "name": "GE Mark VIe 控制器拒绝服务漏洞",
+                    "description": "GE Mark VIe 控制器存在拒绝服务漏洞，攻击者可通过特制数据包导致系统无响应",
+                    "affected_component": "Mark VIe Control System",
+                    "test_method": {
+                        "port": 502,
+                        "protocol": "Modbus TCP",
+                        "payload": "WRITE_MULTIPLE_REGISTERS(0x2000, [0xFF]*100)",
+                        "expected_response": "system_overload"
+                    },
+                    "severity": "中危",
+                    "cvss_score": 6.5
+                },
+                {
+                    "id": "CVE-2022-1836",
+                    "name": "GE Mark VIe 控制器配置修改漏洞",
+                    "description": "GE Mark VIe 控制器存在配置修改漏洞，攻击者可修改系统关键配置参数",
+                    "affected_component": "Mark VIe Configuration Module",
+                    "test_method": {
+                        "port": 502,
+                        "protocol": "Modbus TCP",
+                        "payload": "WRITE_SINGLE_REGISTER(0x3000, 0x1234)",
+                        "expected_response": "config_modified"
+                    },
+                    "severity": "高危",
+                    "cvss_score": 8.4
+                }
             ],
             "三菱M701F": [
                 "CVE-2021-20594 - 三菱电机工控系统漏洞",

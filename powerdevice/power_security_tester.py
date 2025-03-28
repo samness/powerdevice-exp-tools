@@ -450,27 +450,37 @@ class MainWindow(QMainWindow):
         # 获取设备对应的漏洞列表
         device_config_key = f"{current_device_type}机组"
         if device_config_key in DEVICE_CONFIGS:
-            if device_model == "西门子SGT-800":
+            if device_model == "西门子SGT-800" or device_model == "GELM6000":
                 current_vuln_combo.setEnabled(True)
-                vulnerabilities = DEVICE_CONFIGS[device_config_key].get("vulnerabilities", {})
-                sgt800_vulns = [
-                    "CVE-2023-38249 - SGT-800 SIMATIC PCS 7 V9.1 SP1 权限提升漏洞",
-                    "CVE-2023-37482 - SGT-800 SIMATIC WinCC 远程代码执行漏洞",
-                    "CVE-2023-34360 - SGT-800 S7-300 PLC 认证绕过漏洞",
-                    "CVE-2023-29483 - SGT-800 SIMATIC NET 通信协议漏洞",
-                    "CVE-2023-28132 - SGT-800 SIMATIC HMI 面板拒绝服务漏洞",
-                    "CVE-2023-27084 - SGT-800 TIA Portal 配置文件泄露漏洞"
-                ]
-                for vuln in sgt800_vulns:
-                    current_vuln_combo.addItem(vuln)
-                
-                # 默认选择第一个漏洞
-                if current_vuln_combo.count() > 0:
-                    current_vuln_combo.setCurrentIndex(0)
+                if device_model == "西门子SGT-800":
+                    sgt800_vulns = [
+                        "CVE-2023-38249 - SGT-800 SIMATIC PCS 7 V9.1 SP1 权限提升漏洞",
+                        "CVE-2023-37482 - SGT-800 SIMATIC WinCC 远程代码执行漏洞",
+                        "CVE-2023-34360 - SGT-800 S7-300 PLC 认证绕过漏洞",
+                        "CVE-2023-29483 - SGT-800 SIMATIC NET 通信协议漏洞",
+                        "CVE-2023-28132 - SGT-800 SIMATIC HMI 面板拒绝服务漏洞",
+                        "CVE-2023-27084 - SGT-800 TIA Portal 配置文件泄露漏洞"
+                    ]
+                    for vuln in sgt800_vulns:
+                        current_vuln_combo.addItem(vuln)
+                elif device_model == "GELM6000":
+                    gelm6000_vulns = [
+                        "CVE-2019-13554 - GE Mark VIe 控制器 Telnet 认证绕过漏洞",
+                        "CVE-2019-13559 - GE Mark VIe 控制器硬编码凭据漏洞",
+                        "CVE-2020-12004 - GE Mark VIe Web服务器未授权访问漏洞",
+                        "CVE-2021-27101 - GE Mark VIe 控制器拒绝服务漏洞",
+                        "CVE-2022-1836 - GE Mark VIe 控制器配置修改漏洞"
+                    ]
+                    for vuln in gelm6000_vulns:
+                        current_vuln_combo.addItem(vuln)
             else:
                 current_vuln_combo.setEnabled(False)
-                current_vuln_combo.addItem("当前漏洞匹配仅支持西门子SGT-800机组")
+                current_vuln_combo.addItem("当前漏洞匹配仅支持西门子SGT-800和GELM6000机组")
                 current_vuln_details.clear()
+                
+            # 默认选择第一个漏洞
+            if current_vuln_combo.count() > 0 and current_vuln_combo.isEnabled():
+                current_vuln_combo.setCurrentIndex(0)
 
     def on_vulnerability_selected(self, device_type, index):
         """当选择漏洞时更新漏洞详情"""
@@ -481,7 +491,7 @@ class MainWindow(QMainWindow):
         current_vuln_details = self.vuln_details_displays[device_type]
         
         vuln_text = current_vuln_combo.currentText()
-        if vuln_text == "请先选择设备型号" or vuln_text == "当前漏洞匹配仅支持西门子SGT-800机组":
+        if vuln_text == "请先选择设备型号" or vuln_text == "当前漏洞匹配仅支持西门子SGT-800和GELM6000机组":
             current_vuln_details.clear()
             return
             
@@ -589,11 +599,11 @@ class MainWindow(QMainWindow):
         selected_vuln = None
         
         if (device_type == "火力发电机组" and 
-            selected_button.text() == "西门子SGT-800" and 
+            (selected_button.text() == "西门子SGT-800" or selected_button.text() == "GELM6000") and 
             current_vuln_combo.isEnabled()):
             test_type = "漏洞利用"
             selected_vuln = current_vuln_combo.currentText()
-            if not selected_vuln or selected_vuln == "当前漏洞匹配仅支持西门子SGT-800机组":
+            if not selected_vuln or selected_vuln == "当前漏洞匹配仅支持西门子SGT-800和GELM6000机组":
                 QMessageBox.warning(self, "警告", "请选择要测试的漏洞")
                 return
             
@@ -647,18 +657,12 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(False)
         self.start_button.setEnabled(True)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    print("正在启动程序...")
     app = QApplication(sys.argv)
-    
-    # 设置应用程序样式
-    app.setStyle("Fusion")
-    
-    # 创建自定义调色板
-    palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))
-    palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
-    app.setPalette(palette)
-    
+    print("创建主窗口...")
     window = MainWindow()
+    print("显示主窗口...")
     window.show()
+    print("进入事件循环...")
     sys.exit(app.exec()) 
