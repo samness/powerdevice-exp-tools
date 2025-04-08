@@ -1,0 +1,7 @@
+PyQt5>=5.15.0
+pymodbus>=3.0.0
+python-nmap>=0.7.1
+scapy==2.5.0
+requests==2.31.0
+paramiko==3.3.1
+python-dotenv==1.0.0 
