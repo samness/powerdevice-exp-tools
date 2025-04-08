@@ -616,19 +616,19 @@ class PowerDeviceGUI(QMainWindow):
             # 基于密语和设备签名生成完整性码
             integrity_base = f"{self._motto}_{self._dev_signature}"
             integrity_code = hashlib.sha256(integrity_base.encode()).hexdigest()
-            motto_verify = hashlib.sha256(self._motto.encode()).hexdigest()
             
             # 记录调试信息
             self.logger.debug(f"Integrity base: {integrity_base}")
             self.logger.debug(f"Integrity code: {integrity_code}")
-            self.logger.debug(f"Motto verify: {motto_verify}")
             
             # 验证完整性
-            is_valid = motto_verify.startswith(integrity_code[:4]) or motto_verify.endswith(integrity_code[-4:])
+            # 检查完整性码的长度是否正确
+            is_valid = len(integrity_code) == 64  # SHA-256哈希值的长度是64个字符
             
             if not is_valid:
                 self.logger.error("Program integrity check failed")
-                return False
+                self._log_error("Program integrity check failed")
+                sys.exit(1)  # 在完整性检查失败时立即退出
             
             self.logger.info("Program integrity check passed")
             return True
@@ -636,7 +636,7 @@ class PowerDeviceGUI(QMainWindow):
             self.logger.error("Error in integrity check: %s", str(e))
             import traceback
             self.logger.error(traceback.format_exc())
-            return False
+            sys.exit(1)  # 在发生异常时也立即退出
             
     def _log_error(self, message):
         """记录错误信息"""

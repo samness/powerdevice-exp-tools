@@ -24,24 +24,34 @@ wheels/
 venv/
 ENV/
 env/
-.env
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-.DS_Store
 
-# Project specific
+# Logs
 logs/
 *.log
-*.tar.gz
-*.zip
-*.rar
-*.db
-*.sqlite3
-*.bak
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Project specific
+PowerDeviceSEC.spec
+release/
+powerdevice-exp-tools/
+start.bat
+start.command
+start.sh
 
 # Test coverage
 .coverage
