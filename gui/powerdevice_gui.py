@@ -8,50 +8,24 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QPushButton, QTextEdit, QSpinBox, QGroupBox,
                            QTabWidget, QFormLayout, QSplitter, QFrame,
                            QTableWidget, QTableWidgetItem, QHeaderView,
-                           QListWidget, QListWidgetItem)
+                           QListWidget, QListWidgetItem, QMessageBox)
 from PyQt5.QtCore import Qt, QSize, QPoint, QRect
 from PyQt5.QtGui import (QFont, QIcon, QPixmap, QPainter, QLinearGradient, 
                         QColor, QPen)
 from .vulnerability_db import (get_device_vulnerabilities, get_vulnerability_info,
                            get_all_vulnerability_ids, VulnerabilityInfo)
 from .logger import PowerDeviceLogger
+from .exploit_module import ExploitModule, ExploitResult
+import logging
+import traceback
 
 class PowerDeviceGUI(QMainWindow):
     def __init__(self):
-        print("Initializing PowerDeviceGUI...")
         super().__init__()
-        
-        try:
-            # 初始化日志记录器
-            self.logger = PowerDeviceLogger()
-            self.logger.info("PowerDeviceGUI initialization started")
-            
-            # 个人密语标识
-            self.logger.info("Setting up personal identification...")
-            self._motto = "君子论迹不论心"
-            self._auth_seed = hashlib.sha256(self._motto.encode()).hexdigest()[:8]
-            self._auth_code = self._generate_auth_code()
-            
-            if not self._verify_license():
-                self.logger.error("License verification failed!")
-                sys.exit(1)
-                
-            self.logger.info("Setting up window properties...")
-            self.setWindowTitle(f"发电设备测试工具 v0.1.5bea - {self._get_hidden_mark()}")
-            self.setGeometry(100, 100, 1200, 800)
-            
-            self.logger.info("Creating logo...")
-            self.setWindowIcon(self._create_logo())
-            
-            # 初始化主窗口
-            self.logger.info("Initializing UI...")
-            self._init_ui()
-            self.logger.info("PowerDeviceGUI initialization completed")
-        except Exception as e:
-            self.logger.error("Error in PowerDeviceGUI initialization: %s", str(e))
-            import traceback
-            self.logger.error(traceback.format_exc())
-            raise
+        self.logger = PowerDeviceLogger()
+        self.exploit_module = ExploitModule()
+        self.device_tabs = {}  # 存储设备标签页的组件引用
+        self._init_ui()
         
     def _create_logo(self):
         """创建个性化logo"""
@@ -140,10 +114,8 @@ class PowerDeviceGUI(QMainWindow):
             
     def _init_ui(self):
         """初始化用户界面"""
-        self.logger.info("Initializing user interface")
-        # 添加个人标识信息
-        self._dev_signature = f"PDT_{hashlib.md5(self._motto.encode()).hexdigest()[:12]}"
-        self._check_integrity()
+        self.setWindowTitle('电力设备安全测试工具')
+        self.setGeometry(100, 100, 1200, 800)
         
         # 创建主窗口部件
         main_widget = QWidget()
@@ -157,9 +129,9 @@ class PowerDeviceGUI(QMainWindow):
         
         # 火力发电标签页
         thermal_tab = self.create_device_tab([
-            "西门子 SGT-800",
+            "Siemens SGT-800",
             "GE LM6000",
-            "三菱 M701F"
+            "Mitsubishi M701F"
         ])
         self.power_type_tabs.addTab(thermal_tab, "火力发电")
         
@@ -233,23 +205,25 @@ class PowerDeviceGUI(QMainWindow):
     
     def create_device_tab(self, device_list):
         """创建设备测试标签页"""
-        self.logger.debug("Creating device tab for devices: %s", device_list)
+        self.logger.debug(f"Creating device tab for devices: {device_list}")
         tab = QWidget()
         layout = QHBoxLayout(tab)
         
         # 创建左侧控制面板
         left_panel = QWidget()
-        left_panel.setMaximumWidth(300)  # 减小左侧面板宽度
+        left_panel.setMaximumWidth(300)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setSpacing(10)  # 增加组件间距
+        left_layout.setSpacing(10)
         
         # 设备信息组
         device_group = QGroupBox("设备信息")
         device_layout = QFormLayout()
         device_layout.setSpacing(10)
         device_combo = QComboBox()
+        device_combo.setObjectName("device_combo")
         device_combo.addItems(device_list)
-        device_layout.addRow("设备类型:", device_combo)
+        device_combo.currentTextChanged.connect(lambda: self.update_vulnerability_list(device_combo))
+        device_layout.addRow("设备型号:", device_combo)
         device_group.setLayout(device_layout)
         left_layout.addWidget(device_group)
         
@@ -258,58 +232,24 @@ class PowerDeviceGUI(QMainWindow):
         target_layout = QFormLayout()
         target_layout.setSpacing(10)
         ip_input = QLineEdit()
+        ip_input.setObjectName("ip_input")
         port_input = QLineEdit("502")
+        port_input.setObjectName("port_input")
         target_layout.addRow("目标IP:", ip_input)
         target_layout.addRow("端口:", port_input)
         target_group.setLayout(target_layout)
         left_layout.addWidget(target_group)
         
-        # 测试配置组
-        config_group = QGroupBox("测试配置")
-        config_layout = QFormLayout()
-        config_layout.setSpacing(10)
-        thread_spin = QSpinBox()
-        thread_spin.setRange(1, 10)
-        thread_spin.setValue(1)
-        test_combo = QComboBox()
-        test_combo.addItems([
-            "Modbus协议测试",
-            "网络扫描",
-            "漏洞评估",
-            "认证测试"
-        ])
-        config_layout.addRow("并发线程:", thread_spin)
-        config_layout.addRow("测试类型:", test_combo)
-        config_group.setLayout(config_layout)
-        left_layout.addWidget(config_group)
-
         # 漏洞利用组
         exploit_group = QGroupBox("漏洞利用")
-        exploit_layout = QVBoxLayout()  # 改用垂直布局
+        exploit_layout = QVBoxLayout()
         exploit_layout.setSpacing(10)
         
         # 漏洞列表
         vuln_list = QListWidget()
-        vuln_list.setMinimumHeight(200)  # 设置最小高度
-        vuln_list.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #C4C4C4;
-                border-radius: 4px;
-                padding: 5px;
-                background-color: white;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #E0E0E0;
-            }
-            QListWidget::item:selected {
-                background-color: #E3F2FD;
-                color: black;
-            }
-            QListWidget::item:hover {
-                background-color: #F5F5F5;
-            }
-        """)
+        vuln_list.setObjectName("vuln_list")
+        vuln_list.setMinimumHeight(200)
+        vuln_list.itemClicked.connect(lambda item: self.update_vulnerability_details(item, device_combo))
         exploit_layout.addWidget(QLabel("漏洞列表:"))
         exploit_layout.addWidget(vuln_list)
         
@@ -317,297 +257,320 @@ class PowerDeviceGUI(QMainWindow):
         param_group = QGroupBox("参数配置")
         param_layout = QFormLayout()
         param_layout.setSpacing(10)
+        
+        # 添加参数输入框
+        self.param_inputs = {}
+        for param_name in ["plc_address", "command"]:
+            input_widget = QLineEdit()
+            input_widget.setObjectName(f"{param_name}_input")
+            self.param_inputs[param_name] = input_widget
+            param_layout.addRow(f"{param_name}:", input_widget)
+        
         param_group.setLayout(param_layout)
         exploit_layout.addWidget(param_group)
+        
+        # 添加执行按钮
+        execute_button = QPushButton("执行漏洞利用")
+        execute_button.setObjectName("execute_button")
+        execute_button.clicked.connect(lambda: self.execute_exploit(device_combo))
+        exploit_layout.addWidget(execute_button)
         
         exploit_group.setLayout(exploit_layout)
         left_layout.addWidget(exploit_group)
         
-        # 控制按钮组
-        button_group = QGroupBox("控制")
-        button_layout = QVBoxLayout()
-        button_layout.setSpacing(10)
-        start_button = QPushButton("开始测试")
-        stop_button = QPushButton("停止测试")
-        stop_button.setEnabled(False)
-        start_button.setMinimumHeight(40)
-        stop_button.setMinimumHeight(40)
-        button_layout.addWidget(start_button)
-        button_layout.addWidget(stop_button)
-        button_group.setLayout(button_layout)
-        left_layout.addWidget(button_group)
+        layout.addWidget(left_panel)
         
-        # 添加弹性空间
-        left_layout.addStretch()
-        
-        # 创建右侧面板
+        # 创建右侧详情面板
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         
-        # 创建标签页
-        tab_widget = QTabWidget()
+        # 漏洞详情显示
+        vuln_details = QTextEdit()
+        vuln_details.setObjectName("vuln_details")
+        vuln_details.setReadOnly(True)
+        right_layout.addWidget(vuln_details)
         
-        # 实时日志标签页
-        log_tab = QWidget()
-        log_layout = QVBoxLayout(log_tab)
-        log_display = QTextEdit()
-        log_display.setReadOnly(True)
-        log_layout.addWidget(log_display)
-        tab_widget.addTab(log_tab, "实时日志")
-        
-        # 测试结果标签页
-        result_tab = QWidget()
-        result_layout = QVBoxLayout(result_tab)
+        # 执行结果显示
         result_display = QTextEdit()
+        result_display.setObjectName("result_display")
         result_display.setReadOnly(True)
-        result_layout.addWidget(result_display)
-        tab_widget.addTab(result_tab, "测试结果")
+        right_layout.addWidget(result_display)
         
-        # 漏洞详情标签页
-        vuln_tab = QWidget()
-        vuln_layout = QVBoxLayout(vuln_tab)
-        vuln_display = QTextEdit()
-        vuln_display.setReadOnly(True)
-        vuln_display.setStyleSheet("""
-            QTextEdit {
-                font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
-                font-size: 13px;
-                line-height: 1.5;
-                padding: 10px;
-                background-color: #FFFFFF;
-                border: 1px solid #C4C4C4;
-                border-radius: 4px;
-            }
-        """)
-        vuln_layout.addWidget(vuln_display)
-        tab_widget.addTab(vuln_tab, "漏洞详情")
+        layout.addWidget(right_panel)
         
-        right_layout.addWidget(tab_widget)
-        
-        # 添加分割器
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(left_panel)
-        splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 3)
-        
-        layout.addWidget(splitter)
-        
-        # 连接信号
-        device_combo.currentTextChanged.connect(lambda text: self.update_vulnerability_list(text, vuln_list))
-        vuln_list.itemSelectionChanged.connect(lambda: self.update_vulnerability_details(vuln_list, param_layout))
-        
-        # 设置日志显示组件
-        self.logger.set_log_display(log_display)
-        
-        # 存储控件引用
-        tab.widgets = {
-            'device_combo': device_combo,
-            'ip_input': ip_input,
-            'port_input': port_input,
-            'thread_spin': thread_spin,
-            'test_combo': test_combo,
-            'start_button': start_button,
-            'stop_button': stop_button,
-            'log_display': log_display,
-            'result_display': result_display,
-            'vuln_display': vuln_display,
+        # 将组件引用保存到全局字典中
+        tab_name = device_list[0] if device_list else "unknown"
+        self.device_tabs[tab_name] = {
             'vuln_list': vuln_list,
-            'param_layout': param_layout,
-            'tab_widget': tab_widget
+            'vuln_details': vuln_details,
+            'result_display': result_display,
+            'device_combo': device_combo  # 保存设备选择框引用
         }
+        self.logger.debug(f"Stored components for tab {tab_name}: {list(self.device_tabs[tab_name].keys())}")
         
-        self.logger.debug("Device tab creation completed")
         return tab
         
-    def get_current_tab_widgets(self):
-        """获取当前标签页的控件"""
-        self.logger.debug("Getting current tab widgets")
-        current_tab = self.power_type_tabs.currentWidget()
-        return current_tab.widgets if hasattr(current_tab, 'widgets') else None 
-
-    def update_vulnerability_list(self, device_model, vuln_list):
+    def update_vulnerability_list(self, device_combo):
         """更新漏洞列表"""
         try:
-            self.logger.info("Updating vulnerability list for device: %s", device_model)
+            device_model = device_combo.currentText()
+            if not device_model:
+                return
+                
+            # 获取漏洞列表组件
+            self.logger.debug("Finding vulnerability list widget...")
+            # 遍历所有标签页，找到包含当前设备选择框的标签页
+            tab_name = None
+            for name, components in self.device_tabs.items():
+                if components['device_combo'] == device_combo:
+                    tab_name = name
+                    break
+                    
+            if not tab_name:
+                self.logger.error(f"Tab not found for device combo: {device_model}")
+                return
+                
+            vuln_list = self.device_tabs[tab_name]['vuln_list']
+            self.logger.debug(f"Found vulnerability list widget: {vuln_list}")
+            
+            # 根据设备型号确定电源类型
+            power_type = ""
+            if device_model in ["Siemens SGT-800", "西门子 SGT-800", "GE LM6000", "三菱 M701F"]:
+                power_type = "thermal"
+            elif device_model in ["VH喷嘴冲击式机组", "AHM调速系统"]:
+                power_type = "hydro"
+            elif device_model in ["FSS7薄膜组件", "SPMa6"]:
+                power_type = "solar"
+            elif device_model in ["VV236", "SGSG14-222"]:
+                power_type = "wind"
+            
+            self.logger.debug(f"Using power type: {power_type} for device: {device_model}")
+            
+            # 标准化设备名称
+            if device_model == "Siemens SGT-800":
+                device_model = "西门子 SGT-800"
+            
+            vulns = get_device_vulnerabilities(power_type, device_model)
+            self.logger.debug(f"Found {len(vulns)} vulnerabilities for {device_model}")
+            
             vuln_list.clear()
             
-            # 获取当前标签页的设备类型
-            current_tab = self.power_type_tabs.currentWidget()
-            device_type = self.power_type_tabs.tabText(self.power_type_tabs.currentIndex())
-            
-            # 获取漏洞列表
-            vulnerabilities = get_device_vulnerabilities(device_type, device_model)
-            self.logger.info("Found %d vulnerabilities", len(vulnerabilities))
-            
-            # 添加漏洞到列表
-            for vuln_id, vuln_info in vulnerabilities.items():
-                # 简化显示格式，只显示名称和等级
-                display_text = f"{vuln_info.name}\n[{vuln_info.impact_level}] CVSS: {vuln_info.cvss_score}"
-                item = QListWidgetItem(display_text)
-                item.setData(Qt.UserRole, vuln_id)
-                
-                # 根据影响等级设置不同的背景色和样式
+            for vuln_id, vuln_info in vulns.items():
+                item = QListWidgetItem(f"{vuln_info.name} ({vuln_info.impact_level})")
+                # 根据影响级别设置背景色
                 if vuln_info.impact_level == "严重":
-                    item.setBackground(QColor("#FFEBEE"))  # 浅红色背景
-                    item.setForeground(QColor("#D32F2F"))  # 红色文字
+                    item.setBackground(QColor("#FFEBEE"))
                 elif vuln_info.impact_level == "高危":
-                    item.setBackground(QColor("#FFF3E0"))  # 浅橙色背景
-                    item.setForeground(QColor("#F57C00"))  # 橙色文字
+                    item.setBackground(QColor("#FFF3E0"))
+                elif vuln_info.impact_level == "中危":
+                    item.setBackground(QColor("#E8F5E9"))
                 else:
-                    item.setBackground(QColor("#F5F5F5"))  # 浅灰色背景
-                
-                # 设置字体
-                font = item.font()
-                font.setPointSize(10)
-                item.setFont(font)
-                
+                    item.setBackground(QColor("#E3F2FD"))
                 vuln_list.addItem(item)
-            
-            # 自动选中第一个漏洞并显示详情
-            if vuln_list.count() > 0:
-                vuln_list.setCurrentRow(0)
-                # 获取当前标签页的控件
-                widgets = self.get_current_tab_widgets()
-                # 切换到漏洞详情标签
-                widgets['tab_widget'].setCurrentIndex(2)  # 切换到漏洞详情标签页
-                # 更新漏洞详情
-                self.update_vulnerability_details(vuln_list, widgets['param_layout'])
                 
+            # 添加点击事件处理
+            vuln_list.itemClicked.connect(lambda item: self.update_vulnerability_details(item, device_combo))
+            
         except Exception as e:
-            self.logger.error("Error updating vulnerability list: %s", str(e))
-            import traceback
+            self.logger.error(f"Error updating vulnerability list: {str(e)}")
             self.logger.error(traceback.format_exc())
-
-    def update_vulnerability_details(self, vuln_list, param_layout):
+            
+    def update_vulnerability_details(self, item, device_combo):
         """更新漏洞详情"""
         try:
-            selected_items = vuln_list.selectedItems()
-            if not selected_items:
+            if not item:
                 return
                 
-            current_tab_text = self.power_type_tabs.tabText(self.power_type_tabs.currentIndex())
-            current_device = self.get_current_tab_widgets()['device_combo'].currentText()
-            vuln_id = selected_items[0].data(Qt.UserRole)
+            vuln_name = item.text().split(" (")[0]
+            device_model = device_combo.currentText()
             
-            self.logger.info("Getting details for vulnerability: %s", vuln_id)
-            vuln_info = get_vulnerability_info(current_tab_text, current_device, vuln_id)
+            # 获取当前标签页中的漏洞详情显示组件
+            tab_name = None
+            for name, components in self.device_tabs.items():
+                if components['device_combo'] == device_combo:
+                    tab_name = name
+                    break
+                    
+            if not tab_name:
+                self.logger.error(f"Tab not found for device combo: {device_model}")
+                return
+                
+            vuln_details = self.device_tabs[tab_name]['vuln_details']
+            self.logger.debug(f"Found vulnerability details widget: {vuln_details}")
+            
+            # 根据设备型号确定电源类型
+            power_type = None
+            if device_model in ["Siemens SGT-800", "西门子 SGT-800", "GE LM6000", "三菱 M701F"]:
+                power_type = "thermal"
+            elif device_model in ["VH喷嘴冲击式机组", "AHM调速系统"]:
+                power_type = "hydro"
+            elif device_model in ["FSS7薄膜组件", "SPMa6"]:
+                power_type = "solar"
+            elif device_model in ["VV236", "SGSG14-222"]:
+                power_type = "wind"
+            
+            if not power_type:
+                self.logger.error(f"Unknown device model: {device_model}")
+                return
+                
+            # 标准化设备名称
+            if device_model == "Siemens SGT-800":
+                device_model = "西门子 SGT-800"
+            
+            vuln_info = get_vulnerability_info(power_type, device_model, vuln_name)
             if not vuln_info:
-                self.logger.warning("No vulnerability info found")
+                self.logger.error(f"Could not find vulnerability info for {vuln_name}")
                 return
                 
-            # 更新漏洞详情显示
-            vuln_display = self.get_current_tab_widgets()['vuln_display']
-            vuln_display.clear()
+            # 清空现有内容
+            vuln_details.clear()
             
-            # 设置字体和样式
-            vuln_display.setStyleSheet("""
+            # 设置样式
+            vuln_details.setStyleSheet("""
                 QTextEdit {
-                    font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
+                    font-family: 'Microsoft YaHei', 'SimHei';
                     font-size: 13px;
-                    line-height: 1.6;
-                    padding: 15px;
-                    background-color: #FFFFFF;
+                    line-height: 1.5;
+                    padding: 10px;
                 }
             """)
             
-            # 构建详细信息文本
-            detail_text = f"""<div style='margin-bottom: 20px;'>
-<h2 style='color: #1A237E; margin-bottom: 10px;'>{vuln_info.name}</h2>
-<p style='color: {"#D32F2F" if vuln_info.impact_level == "严重" else "#F57C00" if vuln_info.impact_level == "高危" else "#424242"}'>
-<b>影响等级：{vuln_info.impact_level}</b> | <b>CVSS评分：{vuln_info.cvss_score}</b>
-</p>
-</div>
-
-<div style='margin-bottom: 20px;'>
-<h3 style='color: #1A237E;'>漏洞描述</h3>
-<p style='background-color: #F5F5F5; padding: 10px; border-radius: 4px;'>{vuln_info.description}</p>
-</div>
-
-<div style='margin-bottom: 20px;'>
-<h3 style='color: #1A237E;'>影响范围</h3>
-<ul style='background-color: #F5F5F5; padding: 10px; border-radius: 4px;'>
-<li>设备型号：{current_device}</li>
-<li>影响版本：{vuln_info.affected_versions if vuln_info.affected_versions else '所有版本'}</li>
-<li>影响组件：{vuln_info.affected_components if vuln_info.affected_components else '控制系统'}</li>
-</ul>
-</div>
-
-<div style='margin-bottom: 20px;'>
-<h3 style='color: #1A237E;'>利用条件</h3>
-<div style='background-color: #F5F5F5; padding: 10px; border-radius: 4px;'>
-{vuln_info.conditions if vuln_info.conditions else '- 需要网络可达目标设备<br>- 需要设备开启相关服务'}
-</div>
-</div>
-
-<div style='margin-bottom: 20px;'>
-<h3 style='color: #1A237E;'>利用方法</h3>
-<div style='background-color: #FFF8E1; padding: 10px; border-radius: 4px;'>
-<p><b>所需参数：</b></p>
-<ul>
-{chr(10).join(f'<li><b>{name}：</b>{desc}</li>' for name, desc in vuln_info.params.items())}
-</ul>
-<p><b>使用步骤：</b></p>
-<ol>
-<li>确认目标设备信息正确</li>
-<li>在左侧参数配置区域填写必要参数</li>
-<li>点击"开始测试"按钮执行漏洞利用</li>
-<li>查看实时日志了解测试进度</li>
-<li>在测试结果标签页查看详细结果</li>
-</ol>
-</div>
-</div>
-
-<div style='margin-bottom: 20px;'>
-<h3 style='color: #D32F2F;'>注意事项</h3>
-<ul style='background-color: #FFEBEE; padding: 10px; border-radius: 4px;'>
-<li>在进行漏洞利用之前，请确保已经获得授权</li>
-<li>建议在测试环境中进行验证</li>
-<li>请注意保存测试日志以供分析</li>
-<li>如果设备出现异常，请立即停止测试</li>
-<li>测试完成后及时清理测试数据</li>
-</ul>
-</div>
-
-<div style='margin-bottom: 20px;'>
-<h3 style='color: #2E7D32;'>修复建议</h3>
-<div style='background-color: #E8F5E9; padding: 10px; border-radius: 4px;'>
-{vuln_info.fix_suggestions if vuln_info.fix_suggestions else '- 及时更新设备固件到最新版本<br>- 加强访问控制<br>- 配置适当的安全策略'}
-</div>
-</div>"""
+            # 构建HTML内容
+            html = f"""
+            <div style='margin-bottom: 20px;'>
+                <h2 style='color: #333; margin-bottom: 10px;'>{vuln_info.name}</h2>
+                <div style='margin-bottom: 15px;'>
+                    <span style='color: #666;'>影响等级：</span>
+                    <span style='color: {'#ff0000' if vuln_info.impact_level == '严重' else '#ff6600'}; font-weight: bold;'>{vuln_info.impact_level}</span>
+                    <span style='color: #666; margin-left: 20px;'>CVSS评分：</span>
+                    <span style='color: #333; font-weight: bold;'>{vuln_info.cvss_score}</span>
+                </div>
+            </div>
             
-            # 使用HTML格式显示内容
-            vuln_display.setHtml(detail_text)
+            <div style='margin-bottom: 20px;'>
+                <h3 style='color: #333; margin-bottom: 10px;'>漏洞描述</h3>
+                <p style='color: #666; line-height: 1.6;'>{vuln_info.description}</p>
+            </div>
             
-            # 清除旧的参数输入框
-            while param_layout.rowCount():
-                param_layout.removeRow(0)
-                
-            # 添加新的参数输入框
-            param_group = param_layout.parentWidget()
-            param_group.setTitle(f"漏洞利用参数")
-                
+            <div style='margin-bottom: 20px;'>
+                <h3 style='color: #333; margin-bottom: 10px;'>影响设备</h3>
+                <p style='color: #666; line-height: 1.6;'>{', '.join(vuln_info.affected_versions)}</p>
+            </div>
+            
+            <div style='margin-bottom: 20px;'>
+                <h3 style='color: #333; margin-bottom: 10px;'>利用条件</h3>
+                <p style='color: #666; line-height: 1.6;'>{vuln_info.conditions}</p>
+            </div>
+            
+            <div style='margin-bottom: 20px;'>
+                <h3 style='color: #333; margin-bottom: 10px;'>利用方法</h3>
+                <p style='color: #666; line-height: 1.6;'>{vuln_info.fix_suggestions}</p>
+            </div>
+            
+            <div style='margin-bottom: 20px;'>
+                <h3 style='color: #333; margin-bottom: 10px;'>注意事项</h3>
+                <p style='color: #666; line-height: 1.6;'>1. 请确保目标设备确实存在该漏洞</p>
+                <p style='color: #666; line-height: 1.6;'>2. 执行前请做好数据备份</p>
+                <p style='color: #666; line-height: 1.6;'>3. 建议在测试环境中进行验证</p>
+            </div>
+            
+            <div style='margin-bottom: 20px;'>
+                <h3 style='color: #333; margin-bottom: 10px;'>修复建议</h3>
+                <p style='color: #666; line-height: 1.6;'>{vuln_info.fix_suggestions}</p>
+            </div>
+            """
+            
+            vuln_details.setHtml(html)
+            
             # 添加参数输入框
-            for param_name, param_desc in vuln_info.params.items():
-                param_input = QLineEdit()
-                param_input.setPlaceholderText(param_desc)
-                param_input.setStyleSheet("""
-                    QLineEdit {
-                        padding: 5px;
-                        border: 1px solid #C4C4C4;
-                        border-radius: 4px;
-                        background-color: #FFFFFF;
-                    }
-                    QLineEdit:focus {
-                        border: 1px solid #2196F3;
-                    }
+            param_layout = QVBoxLayout()
+            param_layout.setSpacing(10)
+            
+            for param in vuln_info.params:
+                param_layout.addWidget(QLabel(f"{param}:"))
+                param_layout.addWidget(QLineEdit())
+            
+            # 清空现有布局并添加新布局
+            for i in reversed(range(vuln_details.layout().count())):
+                vuln_details.layout().itemAt(i).widget().setParent(None)
+            vuln_details.layout().addLayout(param_layout)
+            
+        except Exception as e:
+            self.logger.error(f"Error updating vulnerability details: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            
+    def execute_exploit(self, device_combo):
+        """执行漏洞利用"""
+        try:
+            # 获取当前标签页中的组件
+            tab_name = None
+            for name, components in self.device_tabs.items():
+                if components['device_combo'] == device_combo:
+                    tab_name = name
+                    break
+                    
+            if not tab_name:
+                self.logger.error(f"Tab not found for device combo")
+                return
+                
+            components = self.device_tabs[tab_name]
+            vuln_list = components['vuln_list']
+            result_display = components['result_display']
+            
+            # 获取选中的漏洞
+            selected_items = vuln_list.selectedItems()
+            if not selected_items:
+                result_display.setHtml("<p style='color: red;'>请先选择一个漏洞</p>")
+                return
+                
+            vuln_name = selected_items[0].text().split(" (")[0]
+            device_model = device_combo.currentText()
+            
+            # 获取漏洞详情
+            power_type = ""
+            if "SGT" in device_model or "LM" in device_model or "M701" in device_model:
+                power_type = "thermal"
+            elif "VH" in device_model or "AHM" in device_model:
+                power_type = "hydro"
+            elif "FSS" in device_model or "SPM" in device_model:
+                power_type = "solar"
+            elif "VV" in device_model or "SGSG" in device_model:
+                power_type = "wind"
+            
+            vuln_info = get_vulnerability_info(power_type, device_model, vuln_name)
+            if not vuln_info:
+                result_display.setHtml("<p style='color: red;'>未找到漏洞信息</p>")
+                return
+                
+            # 收集参数
+            params = {}
+            for param in vuln_info.params.split(','):
+                param = param.strip()
+                input_widget = components.get(f'param_{param}')
+                if input_widget:
+                    params[param] = input_widget.text()
+                    
+            # 执行漏洞利用
+            exploit_module = ExploitModule()
+            result = exploit_module.execute_exploit(device_model, vuln_name, params)
+            
+            # 显示结果
+            if result.success:
+                result_display.setHtml(f"""
+                    <p style='color: green;'><b>漏洞利用成功！</b></p>
+                    <p><b>消息:</b> {result.message}</p>
+                    <p><b>详情:</b> {result.details}</p>
                 """)
-                param_layout.addRow(f"{param_name}:", param_input)
+            else:
+                result_display.setHtml(f"""
+                    <p style='color: red;'><b>漏洞利用失败！</b></p>
+                    <p><b>错误信息:</b> {result.message}</p>
+                """)
                 
         except Exception as e:
-            self.logger.error("Error updating vulnerability details: %s", str(e))
-            import traceback
+            self.logger.error(f"Error executing exploit: {str(e)}")
             self.logger.error(traceback.format_exc())
+            result_display.setHtml(f"<p style='color: red;'>执行过程中发生错误: {str(e)}</p>")
 
     def _check_integrity(self):
         """检查程序完整性"""
